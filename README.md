@@ -2,7 +2,7 @@
 
 [![IP-Symcon ab 8.1](https://img.shields.io/badge/IP--Symcon-ab_8.1-0b6fb3.svg)](https://www.symcon.de)
 [![Optimiert für Symcon 9.0](https://img.shields.io/badge/optimiert_f%C3%BCr-Symcon_9.0-0b6fb3.svg)](https://www.symcon.de/de/service/dokumentation/installation/migrationen/v81-v90-q1-2026/)
-[![Modul-Version 1.2 (Build 3)](https://img.shields.io/badge/Modul--Version-1.2_(Build_3)-informational.svg)](library.json)
+[![Modul-Version 1.3 (Build 4)](https://img.shields.io/badge/Modul--Version-1.3_(Build_4)-informational.svg)](library.json)
 [![Tests](https://github.com/cfaf2002/Hauskachel-Symcon/actions/workflows/tests.yml/badge.svg)](https://github.com/cfaf2002/Hauskachel-Symcon/actions/workflows/tests.yml)
 [![PHP 8.3 und 8.5](https://img.shields.io/badge/PHP-8.3_%7C_8.5-777bb4.svg?logo=php&logoColor=white)](https://www.php.net)
 [![SDK: IPSModuleStrict](https://img.shields.io/badge/SDK-IPSModuleStrict-success.svg)](https://www.symcon.de/de/service/dokumentation/entwicklerbereich/sdk-tools/sdk-php/module/)
@@ -98,9 +98,11 @@ Nach der Wahl der Hauskategorie und *Übernehmen* listet das Formular alle Berei
 | Temperatur | Temperatur, temperature, °C | Float |
 | Luftfeuchte | Feuchte, humidity | Zahl |
 | Solltemperatur | Soll, setpoint, target | Float (mit Aktion zum Verstellen) |
-| Licht | Licht, Lampe, Leuchte, Spot, Deko | Boolean (mit Aktion zum Schalten) |
+| Licht | Licht, Lampe, Leuchte, Spot, Deko, Beleuchtung | Boolean oder Dimmer in % (mit Aktion zum Schalten) |
 | Fenster / Tür | Fenster, Tür, Kontakt, window, door | Boolean (`~Window`, `~Window.Reversed`), Integer (0 = zu) oder Text („Geschlossen“, „Offen“, „Gekippt“) |
 | Präsenz | Präsenz, Bewegung, Anwesenheit, motion | Boolean oder Integer |
+
+Am sichersten ist ein Ordner oder eine Dummy-Instanz pro Gerätegruppe im Raum, z. B. *Licht*, *Heizkörper*, *Steckdosen*: Der Name dieses Ordners entscheidet vor dem Namen des Links. „Steckdosen › Fenster links unten“ ist damit eine Steckdose (wird ausgelassen), „Licht › Deko“ ein Licht. Fehlt so ein Ordner, helfen Name, Profil, Einheit und der Pfad der Hardware-Variable (z. B. `KNX\…\Beleuchtung\…`).
 
 Was die Erkennung gefunden hat, zeigt die Tabelle *Erkannt* im Formular. Passt etwas nicht, unter *Eigene Zuordnungen* Raum, Funktion und Variable eintragen.
 
@@ -146,6 +148,7 @@ php tests/stubs.php ../SymconStubs
 
 | Version | Build | Datum | Beschreibung |
 | :-- | --: | :-- | :-- |
+| 1.3 | 4 | 05.11.2026 | Erkennung durchläuft Unterordner, Dummy-Instanzen und Links vollständig (auch versteckte); Ordner bzw. Dummy-Instanz im Raum („Licht“, „Steckdosen“, „Heizkörper“) entscheidet vor dem Linknamen; Dimmer in % zählen als Licht und werden auf Höchstwert/0 geschaltet; Steckdosen werden nicht mehr als Fenster gezählt; Raumfelder zeigen alle gefundenen Geräte, auch wenn sie aus sind |
 | 1.2 | 3 | 05.11.2026 | Erkennt auch Links in Instanzen (z. B. Dummy-Instanz „Heizkörper“ mit Links auf die HCU) und Fensterstatus als Text („Geschlossen“, „Offen“, „Gekippt“) |
 | 1.1 | 2 | 05.11.2026 | Kachel lässt oben Platz für Titel und Vergrößern-Symbol der Visualisierung; Struktur wird beim ersten Öffnen eingelesen; klarer Hinweis statt leerer Kachel, wenn die Hauskategorie fehlt |
 | 1.0 | 1 | 05.11.2026 | Erste Version: Haus im Schnitt mit Etagen, Keller, Treppenhaus, Garten und Nebengebäuden (Garage, Carport), automatische Erkennung, Licht und Solltemperatur aus der Kachel |

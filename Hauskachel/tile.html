@@ -91,6 +91,7 @@
     .room .v { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 12px; color: var(--muted); }
     .room .ic { display: flex; gap: 3px; }
     .ic .l { color: var(--haus-light); } .ic .w { color: var(--haus-window); } .ic .p { color: var(--haus-presence); }
+    .ic .off { color: var(--faint); }
 
     .axis { width: 64px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
     .axis .room { flex: 1; align-items: center; justify-content: center; text-align: center; background: var(--haus-floor); border-color: var(--line); }
@@ -220,9 +221,12 @@
             btn.setAttribute('aria-label', (r.n || '') + (floorOf[key] ? ', ' + floorOf[key] : ''));
             btn.setAttribute('aria-pressed', key === selected ? 'true' : 'false');
             var icons = el('span', 'ic');
-            if (r.l > 0) { icons.appendChild(icon('l', 'l')); }
-            if (r.w > 0) { icons.appendChild(icon('w', 'w')); }
-            if (r.p) { icons.appendChild(icon('p', 'p')); }
+            // Gefundene Geräte immer zeigen: farbig = an/offen/da, blass = aus/zu/niemand
+            var has = function (v) { return v !== null && v !== undefined; };
+            if (has(r.l)) { icons.appendChild(icon('l', r.l > 0 ? 'l' : 'l off')); }
+            if (has(r.w)) { icons.appendChild(icon('w', r.w > 0 ? 'w' : 'w off')); }
+            if (has(r.p)) { icons.appendChild(icon('p', r.p ? 'p' : 'p off')); }
+            if (has(r.s) && !has(r.t)) { icons.appendChild(icon('t', 'off')); }
             if (out) {
                 var big = icon(r.i || 'garden', 'big');
                 btn.appendChild(big);
@@ -308,7 +312,13 @@
             var keys = [];
             (state.floors || []).forEach(function (f) { keys = keys.concat(f.r || []); });
             keys = keys.concat(state.axis || [], state.out || []);
+            var has = function (v) { return v !== null && v !== undefined; };
+            // zuerst ein Raum mit Präsenz, dann der erste mit gefundenen Geräten, sonst der erste überhaupt
             for (var i = 0; i < keys.length; i++) { if (state.rooms[keys[i]] && state.rooms[keys[i]].p) { return keys[i]; } }
+            for (var j = 0; j < keys.length; j++) {
+                var r = state.rooms[keys[j]];
+                if (r && (has(r.t) || has(r.l) || has(r.w) || has(r.s))) { return keys[j]; }
+            }
             return keys.length ? keys[0] : null;
         }
 

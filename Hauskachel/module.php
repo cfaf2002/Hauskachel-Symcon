@@ -441,7 +441,7 @@ class Hauskachel extends IPSModuleStrict
         ];
         $lights = array_values(array_filter($ids['l'], 'IPS_VariableExists'));
         if ($lights !== []) {
-            $values['l'] = count(array_filter($lights, static fn (int $v): bool => (bool) GetValue($v)));
+            $values['l'] = count(array_filter($lights, static fn (int $v): bool => (float) GetValue($v) > 0));
             $values['ln'] = count($lights);
             $values['la'] = count(array_filter($lights, 'HasAction')) > 0;
         }
@@ -485,27 +485,29 @@ class Hauskachel extends IPSModuleStrict
     /**
      * Alle Variablen unterhalb einer Kategorie, mit dem Namen der Instanz oder des Links als Zusammenhang.
      */
-    private function Collect(int $catId, bool $recursive, int $depth = 0): array
+    private function Collect(int $catId, bool $recursive, int $depth = 0, string $context = ''): array
     {
         $found = [];
-        if ($depth > 4) {
+        if ($depth > 5) {
             return $found;
         }
-        foreach ($this->Children($catId) as $child) {
-            if (IPS_GetObject($child)['ObjectType'] === OBJECTTYPE_CATEGORY) {
+        foreach ($this->Children($catId, true) as $child) {
+            $obj = IPS_GetObject($child);
+            if ($obj['ObjectType'] === OBJECTTYPE_CATEGORY) {
                 if ($recursive) {
-                    $found = array_merge($found, $this->Collect($child, true, $depth + 1));
+                    // Unterordner im Raum („Licht“, „Steckdosen“) geben den Zusammenhang mit
+                    $found = array_merge($found, $this->Collect($child, true, $depth + 1, $context . ' ' . $obj['ObjectName']));
                 }
                 continue;
             }
-            $found = array_merge($found, $this->CollectObject($child, '', $depth));
+            $found = array_merge($found, $this->CollectObject($child, $context, $depth));
         }
         return $found;
     }
 
     private function CollectObject(int $id, string $context, int $depth = 0): array
     {
-        if ($depth > 4 || !IPS_ObjectExists($id)) {
+        if ($depth > 5 || !IPS_ObjectExists($id)) {
             return [];
         }
         $obj = IPS_GetObject($id);
@@ -515,7 +517,7 @@ class Hauskachel extends IPSModuleStrict
             case OBJECTTYPE_INSTANCE:
                 // Variablen und Links in der Instanz (z. B. Dummy-Instanz „Heizkörper“ mit Links auf die HCU)
                 $found = [];
-                foreach ($this->Children($id) as $child) {
+                foreach ($this->Children($id, true) as $child) {
                     $found = array_merge($found, $this->CollectObject($child, $context . ' ' . $obj['ObjectName'], $depth + 1));
                 }
                 return $found;
@@ -525,7 +527,7 @@ class Hauskachel extends IPSModuleStrict
                     return [];
                 }
                 if (IPS_GetObject($target)['ObjectType'] === OBJECTTYPE_CATEGORY) {
-                    return $this->Collect($target, true, $depth + 1);
+                    return $this->Collect($target, true, $depth + 1, $context . ' ' . $obj['ObjectName']);
                 }
                 return $this->CollectObject($target, $context . ' ' . $obj['ObjectName'], $depth + 1);
         }
@@ -540,40 +542,76 @@ class Hauskachel extends IPSModuleStrict
         $var = IPS_GetVariable($vid);
         $obj = IPS_GetObject($vid);
         $type = $var['VariableType'];
-        $hints = [$context, $obj['ObjectName'], $obj['ObjectIdent'], $var['VariableCustomProfile'], $var['VariableProfile']];
+        $numeric = $type === VARIABLETYPE_INTEGER || $type === VARIABLETYPE_FLOAT;
+
+        // Drei Quellen, von speziell nach allgemein:
+        // $ctx  – Ordner, Dummy-Instanzen und Links im Raum („Licht“, „Steckdosen“, „Heizkörper“ …)
+        // $own  – Name, Ident, Profil, Symbol und Einheit der Variable selbst
+        // $hw   – Pfad im Objektbaum (z. B. „Hardware\KNX\1.OG\Beleuchtung\…“) als zusätzlicher Hinweis
+        $ctx = mb_strtolower($context);
+        $hints = [$obj['ObjectName'], $obj['ObjectIdent'], $var['VariableCustomProfile'], $var['VariableProfile']];
         foreach ([$var['VariablePresentation'] ?? [], $var['VariableCustomPresentation'] ?? []] as $p) {
             if (is_array($p)) {
                 $hints[] = (string) ($p['ICON'] ?? '');
                 $hints[] = (string) ($p['SUFFIX'] ?? '');
             }
         }
-        $text = mb_strtolower(implode(' ', $hints));
-        $numeric = $type === VARIABLETYPE_INTEGER || $type === VARIABLETYPE_FLOAT;
-        $name = mb_strtolower($obj['ObjectName'] . ' ' . $obj['ObjectIdent']);
+        $own = mb_strtolower(implode(' ', $hints));
+        $hw = mb_strtolower(IPS_GetLocation($vid));
+        $all = $ctx . ' ' . $own;
+
+        $kw = [
+            'light'  => '/licht|light|lampe|lamp|leuchte|beleuchtung|spot|deko|dimmer|lightbulb/u',
+            'socket' => '/steckdose|socket|outlet|zwischenstecker|\bsd\b/u',
+            'window' => '/fenster|window|tür|tuer|door|kontakt|contact|shutter|öffnung|oeffnung/u',
+            'lock'   => '/schloss|lock|riegel/u',
+            'pres'   => '/präsenz|praesenz|presence|bewegung|motion|anwesen|occupan/u',
+            'hum'    => '/feuchte|humidity/u',
+            'set'    => '/soll|setpoint|set_point|target/u',
+            'temp'   => '/temperatur|temperature|°c|\btemp\b|thermometer/u',
+        ];
+        $is = static fn (string $k, string $text): bool => (bool) preg_match($kw[$k], $text);
 
         // Technische Nebenwerte nie als Raumwert nehmen
-        if (preg_match('/batter|rssi|unreach|signal|duty|low_?bat|sabotage|error|fehler|config|firmware|update|voltage|spannung|leistung|power|energ|verbrauch|zähler|counter/u', $name)) {
+        if (preg_match('/batter|rssi|unreach|signal|duty|low_?bat|sabotage|error|fehler|config|firmware|update|voltage|spannung|leistung|power|energ|verbrauch|zähler|counter/u', mb_strtolower($obj['ObjectName'] . ' ' . $obj['ObjectIdent']))) {
             return null;
         }
-        if (preg_match('/fenster|window|tür|tuer|door|kontakt|contact|shutter|öffnung|oeffnung/u', $text)
-            && !preg_match('/schloss|lock|riegel/u', $text) && $type !== VARIABLETYPE_FLOAT) {
-            return 'w';
-        }
-        if (preg_match('/präsenz|praesenz|presence|bewegung|motion|anwesen|occupan|person/u', $text)
-            && ($type === VARIABLETYPE_BOOLEAN || $type === VARIABLETYPE_INTEGER)) {
-            return 'p';
-        }
-        if ($numeric && preg_match('/feuchte|humidity/u', $text)) {
+        // Messwerte zuerst – sie sind am Namen eindeutig
+        if ($numeric && $is('hum', $all)) {
             return 'h';
         }
-        if ($type === VARIABLETYPE_FLOAT && preg_match('/soll|setpoint|set_point|target|solltemp/u', $text)) {
+        if ($type === VARIABLETYPE_FLOAT && $is('set', $all) && !$is('light', $ctx)) {
             return 's';
         }
-        if ($type === VARIABLETYPE_FLOAT && preg_match('/temperatur|temperature|°c|temp\b|thermometer/u', $text)) {
+        if ($type === VARIABLETYPE_FLOAT && $is('temp', $all) && !$is('light', $ctx)) {
             return 't';
         }
-        if ($type === VARIABLETYPE_BOOLEAN && preg_match('/licht|light|lampe|lamp|leuchte|beleuchtung|spot|deko|lightbulb/u', $text)) {
-            return 'l';
+        // Der Ordner bzw. die Dummy-Instanz im Raum entscheidet vor dem Linknamen:
+        // „Steckdosen › Fenster links unten“ ist eine Steckdose, „Licht › Deko“ ein Licht
+        if ($is('light', $ctx)) {
+            return $type === VARIABLETYPE_BOOLEAN || $numeric ? 'l' : null;
+        }
+        if ($is('socket', $ctx)) {
+            return null;
+        }
+        if ($is('window', $all) && !$is('lock', $all) && $type !== VARIABLETYPE_FLOAT) {
+            return 'w';
+        }
+        if ($is('pres', $all) && ($type === VARIABLETYPE_BOOLEAN || $type === VARIABLETYPE_INTEGER)) {
+            return 'p';
+        }
+        // Ohne eindeutigen Ordner: Name der Variable und Hardware-Pfad
+        if ($is('socket', $own . ' ' . $hw) && !$is('light', $own)) {
+            return null;
+        }
+        if ($is('light', $own . ' ' . $hw)) {
+            if ($type === VARIABLETYPE_BOOLEAN) {
+                return 'l';
+            }
+            // Dimmer nur mit Prozent-Einheit oder Intensitäts-Profil, damit Helligkeitssensoren (lx) draußen bleiben
+            if ($numeric && preg_match('/%|intensity|percent|dimm|level/u', $own)) {
+                return 'l';
+            }
         }
         return null;
     }
@@ -640,12 +678,41 @@ class Hauskachel extends IPSModuleStrict
         if ($lights === []) {
             return;
         }
-        $anyOn = count(array_filter($lights, static fn (int $v): bool => (bool) GetValue($v))) > 0;
+        $anyOn = count(array_filter($lights, static fn (int $v): bool => (float) GetValue($v) > 0)) > 0;
         foreach ($lights as $vid) {
-            if ((bool) GetValue($vid) === $anyOn) {
+            $value = GetValue($vid);
+            if (((float) $value > 0) !== $anyOn) {
+                continue;
+            }
+            if (is_bool($value)) {
                 RequestAction($vid, !$anyOn);
+            } elseif (is_int($value)) {
+                RequestAction($vid, $anyOn ? 0 : (int) $this->MaxOf($vid));
+            } else {
+                RequestAction($vid, $anyOn ? 0.0 : $this->MaxOf($vid));
             }
         }
+    }
+
+    /**
+     * Höchstwert eines Dimmers aus Darstellung oder Profil (Standard 100).
+     */
+    private function MaxOf(int $vid): float
+    {
+        $var = IPS_GetVariable($vid);
+        foreach ([$var['VariableCustomPresentation'] ?? [], $var['VariablePresentation'] ?? []] as $p) {
+            if (is_array($p) && isset($p['MAX']) && is_numeric($p['MAX']) && (float) $p['MAX'] > 0) {
+                return (float) $p['MAX'];
+            }
+        }
+        $profile = $var['VariableCustomProfile'] ?: $var['VariableProfile'];
+        if ($profile !== '' && IPS_VariableProfileExists($profile)) {
+            $max = (float) IPS_GetVariableProfile($profile)['MaxValue'];
+            if ($max > 0) {
+                return $max;
+            }
+        }
+        return 100.0;
     }
 
     private function ChangeSetpoint(string $key, int $direction): void
@@ -736,7 +803,7 @@ class Hauskachel extends IPSModuleStrict
     // Hilfen
     // ===================================================================================================
 
-    private function Children(int $id): array
+    private function Children(int $id, bool $withHidden = false): array
     {
         $children = IPS_GetChildrenIDs($id);
         usort($children, static function (int $a, int $b): int {
@@ -744,6 +811,9 @@ class Hauskachel extends IPSModuleStrict
             $ob = IPS_GetObject($b);
             return [$oa['ObjectPosition'], $oa['ObjectName']] <=> [$ob['ObjectPosition'], $ob['ObjectName']];
         });
+        if ($withHidden) {
+            return $children;
+        }
         return array_values(array_filter($children, static fn (int $c): bool => !IPS_GetObject($c)['ObjectIsHidden']));
     }
 
