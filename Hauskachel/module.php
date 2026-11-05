@@ -460,6 +460,14 @@ class Hauskachel extends IPSModuleStrict
     private function IsOpen(int $vid): bool
     {
         $value = GetValue($vid);
+        if (is_string($value)) {
+            // Text wie bei der HCU: „Geschlossen“, „Offen“, „Gekippt“
+            $v = mb_strtolower($value);
+            if (preg_match('/geschlossen|closed|\bzu\b/u', $v)) {
+                return false;
+            }
+            return (bool) preg_match('/offen|open|gekippt|tilt/u', $v);
+        }
         if (is_bool($value)) {
             $var = IPS_GetVariable($vid);
             $profile = mb_strtolower($var['VariableCustomProfile'] ?: $var['VariableProfile']);
@@ -505,11 +513,10 @@ class Hauskachel extends IPSModuleStrict
             case OBJECTTYPE_VARIABLE:
                 return [[$id, trim($context)]];
             case OBJECTTYPE_INSTANCE:
+                // Variablen und Links in der Instanz (z. B. Dummy-Instanz „Heizkörper“ mit Links auf die HCU)
                 $found = [];
                 foreach ($this->Children($id) as $child) {
-                    if (IPS_VariableExists($child)) {
-                        $found[] = [$child, trim($context . ' ' . $obj['ObjectName'])];
-                    }
+                    $found = array_merge($found, $this->CollectObject($child, $context . ' ' . $obj['ObjectName'], $depth + 1));
                 }
                 return $found;
             case OBJECTTYPE_LINK:
@@ -549,7 +556,7 @@ class Hauskachel extends IPSModuleStrict
             return null;
         }
         if (preg_match('/fenster|window|tür|tuer|door|kontakt|contact|shutter|öffnung|oeffnung/u', $text)
-            && !preg_match('/schloss|lock|riegel/u', $text) && ($type === VARIABLETYPE_BOOLEAN || $type === VARIABLETYPE_INTEGER)) {
+            && !preg_match('/schloss|lock|riegel/u', $text) && $type !== VARIABLETYPE_FLOAT) {
             return 'w';
         }
         if (preg_match('/präsenz|praesenz|presence|bewegung|motion|anwesen|occupan|person/u', $text)
