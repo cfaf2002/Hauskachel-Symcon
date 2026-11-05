@@ -47,7 +47,9 @@
             "Please choose the house category in the instance settings.": "Bitte in den Einstellungen der Instanz die Hauskategorie wählen.",
             "Lights on": "Lichter an",
             "Windows open": "Fenster offen",
-            "Average temperature": "Durchschnittstemperatur"
+            "Average temperature": "Durchschnittstemperatur",
+            "On": "An",
+            "Off": "Aus"
         }
     }
 }

@@ -108,6 +108,12 @@ class Hauskachel extends IPSModuleStrict
                     $this->ChangeSetpoint((string) ($data['k'] ?? ''), (int) ($data['d'] ?? 0));
                 }
                 break;
+            case 'Set':
+                $data = json_decode((string) $Value, true);
+                if (is_array($data)) {
+                    $this->SetItem((string) ($data['k'] ?? ''), (int) ($data['i'] ?? -1), $data);
+                }
+                break;
             case 'Rebuild':
                 $this->Build();
                 break;
@@ -233,7 +239,7 @@ class Hauskachel extends IPSModuleStrict
                     // Messwerte der Etage (Kategorie „Messwerte“ und Variablen direkt in der Etage)
                     if ($loose !== []) {
                         $key = 'm' . $id;
-                        [$rooms[$key], $index[$key]] = $this->BuildRoomFrom($id, $loose, $area['name'], $area['name'], $overrides, false);
+                        [$rooms[$key], $index[$key]] = $this->BuildRoomFrom($id, $loose, $area['name'], $area['name'], $overrides, false, false);
                         $floor['m'] = $key;
                     }
                     $floors[] = $floor;
@@ -256,10 +262,20 @@ class Hauskachel extends IPSModuleStrict
         // Rückwärtsverzeichnis: Variable → Räume
         $vars = [];
         foreach ($index as $key => $entry) {
+            $own = [];
             foreach (self::FUNCTIONS as $f) {
                 foreach ((array) ($entry['ids'][$f] ?? []) as $vid) {
-                    $vars[(int) $vid][] = $key;
+                    $own[(int) $vid] = true;
                 }
+            }
+            foreach ($entry['items'] ?? [] as $item) {
+                if (empty($item['s'])) {
+                    $own[(int) $item['id']] = true;
+                }
+            }
+            unset($own[0]);
+            foreach (array_keys($own) as $vid) {
+                $vars[$vid][] = $key;
             }
         }
         foreach (array_keys($vars) as $vid) {
@@ -384,17 +400,25 @@ class Hauskachel extends IPSModuleStrict
      *
      * @param array<int, array{0:int,1:string}> $found Variable und Zusammenhang (Name der Instanz bzw. des Links)
      */
-    private function BuildRoomFrom(int $catId, array $found, string $name, string $floor, array $overrides, bool $outdoor): array
+    private function BuildRoomFrom(int $catId, array $found, string $name, string $floor, array $overrides, bool $outdoor, bool $withItems = true): array
     {
         $ids = ['t' => 0, 'h' => 0, 's' => 0, 'l' => [], 'w' => [], 'p' => []];
         $own = $overrides[$catId] ?? [];
         $ignored = array_flip($own['x'] ?? []);
         $seen = [];
-        foreach ($found as [$vid, $context]) {
-            if (isset($seen[$vid]) || isset($ignored[$vid])) {
+        $items = [];
+        foreach ($found as [$vid, $context, $itemName, $group, $hidden, $script]) {
+            if (isset($seen[$vid])) {
                 continue;
             }
             $seen[$vid] = true;
+            // Alles Sichtbare im Raum erscheint in der Kachel – unabhängig von der Erkennung
+            if (!$hidden && $withItems && count($items) < 80) {
+                $items[] = ['id' => $vid, 'n' => $itemName, 'g' => $group, 's' => $script];
+            }
+            if ($script || isset($ignored[$vid])) {
+                continue;
+            }
             $f = $this->Classify($vid, $context);
             if ($f === null) {
                 continue;
@@ -417,10 +441,157 @@ class Hauskachel extends IPSModuleStrict
             }
         }
         $label = $floor !== '' && $floor !== $name ? $floor . ' · ' . $name : $name;
-        $entry = ['ids' => $ids, 'label' => $label];
+        $entry = ['ids' => $ids, 'label' => $label, 'items' => $items];
         $room = ['n' => $name, 'o' => $outdoor || (bool) preg_match('/terrasse|balkon|garten|loggia/u', mb_strtolower($name))]
-            + $this->RoomValues($ids);
+            + $this->RoomState($entry);
         return [$room, $entry];
+    }
+
+    private function RoomState(array $entry): array
+    {
+        $state = $this->RoomValues($entry['ids']);
+        if (($entry['items'] ?? []) !== []) {
+            $state['it'] = $this->Items($entry['items']);
+        }
+        return $state;
+    }
+
+    /**
+     * Anzeige aller Objekte eines Raums: formatierter Wert und passendes Bedienelement.
+     * c: sw = Schalter, en = Auswahl, rg = Schieber, st = −/+, run = Skript ausführen, null = nur Anzeige
+     */
+    private function Items(array $items): array
+    {
+        $list = [];
+        foreach ($items as $item) {
+            $vid = (int) $item['id'];
+            $row = ['n' => (string) $item['n'], 'g' => (string) $item['g'], 'v' => '', 'c' => null];
+            if (!empty($item['s'])) {
+                if (!IPS_ScriptExists($vid)) {
+                    continue;
+                }
+                $row['c'] = 'run';
+                $list[] = $row;
+                continue;
+            }
+            if (!IPS_VariableExists($vid)) {
+                continue;
+            }
+            $value = GetValue($vid);
+            $type = IPS_GetVariable($vid)['VariableType'];
+            $row['v'] = $this->Formatted($vid, $value);
+            if (HasAction($vid)) {
+                $options = $this->Options($vid);
+                if ($type === VARIABLETYPE_BOOLEAN) {
+                    $row['c'] = 'sw';
+                    $row['x'] = (bool) $value;
+                } elseif (count($options) >= 2 && count($options) <= 12) {
+                    $row['c'] = 'en';
+                    $row['x'] = $value;
+                    $row['o'] = $options;
+                } elseif ($type === VARIABLETYPE_INTEGER || $type === VARIABLETYPE_FLOAT) {
+                    [$min, $max, $step] = $this->Range($vid);
+                    $row['x'] = $value;
+                    $row['mn'] = $min;
+                    $row['mx'] = $max;
+                    $row['st'] = $step;
+                    // Prozent/Helligkeit als Schieber, sonst −/+ (z. B. Solltemperatur)
+                    $row['c'] = $max > $min && ($max - $min) / $step <= 1000 && $type === VARIABLETYPE_INTEGER ? 'rg' : 'st';
+                }
+            }
+            $list[] = $row;
+        }
+        return $list;
+    }
+
+    private function Formatted(int $vid, mixed $value): string
+    {
+        $text = '';
+        try {
+            $text = (string) GetValueFormatted($vid);
+        } catch (Throwable $e) {
+            $text = '';
+        }
+        // Ohne Profil/Darstellung liefert Symcon nur Rohwerte („1“, „22“) – dann selbst lesbar machen
+        $raw = $text === '' || str_starts_with($text, 'Invalid') || (is_bool($value) && in_array(mb_strtolower($text), ['0', '1', 'true', 'false'], true))
+            || (is_float($value) && is_numeric($text));
+        if (!$raw) {
+            return $text;
+        }
+        if (is_bool($value)) {
+            return $value ? $this->Translate('On') : $this->Translate('Off');
+        }
+        if (is_float($value)) {
+            return number_format($value, 1, ',', '.');
+        }
+        return (string) $value;
+    }
+
+    /**
+     * Auswahlwerte aus Darstellung (OPTIONS) oder Profil (Assoziationen): [[Wert, Text], …]
+     */
+    private function Options(int $vid): array
+    {
+        $var = IPS_GetVariable($vid);
+        foreach ([$var['VariableCustomPresentation'] ?? [], $var['VariablePresentation'] ?? []] as $p) {
+            if (!is_array($p) || !isset($p['OPTIONS'])) {
+                continue;
+            }
+            $opts = is_string($p['OPTIONS']) ? json_decode($p['OPTIONS'], true) : $p['OPTIONS'];
+            if (is_array($opts) && $opts !== []) {
+                $list = [];
+                foreach ($opts as $o) {
+                    if (is_array($o) && array_key_exists('Value', $o)) {
+                        $list[] = [$o['Value'], (string) ($o['Caption'] ?? $o['Value'])];
+                    }
+                }
+                return $list;
+            }
+        }
+        $profile = $var['VariableCustomProfile'] ?: $var['VariableProfile'];
+        if ($profile !== '' && IPS_VariableProfileExists($profile)) {
+            $list = [];
+            foreach (IPS_GetVariableProfile($profile)['Associations'] ?? [] as $a) {
+                $list[] = [$a['Value'], (string) $a['Name']];
+            }
+            return $list;
+        }
+        return [];
+    }
+
+    /**
+     * Bereich und Schrittweite aus Darstellung oder Profil.
+     */
+    private function Range(int $vid): array
+    {
+        $var = IPS_GetVariable($vid);
+        $float = $var['VariableType'] === VARIABLETYPE_FLOAT;
+        $min = 0.0;
+        $max = $float ? 0.0 : 100.0;
+        $step = $float ? 0.5 : 1.0;
+        $profile = $var['VariableCustomProfile'] ?: $var['VariableProfile'];
+        if ($profile !== '' && IPS_VariableProfileExists($profile)) {
+            $p = IPS_GetVariableProfile($profile);
+            if ((float) $p['MaxValue'] > (float) $p['MinValue']) {
+                $min = (float) $p['MinValue'];
+                $max = (float) $p['MaxValue'];
+            }
+            if ((float) $p['StepSize'] > 0) {
+                $step = (float) $p['StepSize'];
+            }
+        }
+        foreach ([$var['VariablePresentation'] ?? [], $var['VariableCustomPresentation'] ?? []] as $p) {
+            if (is_array($p)) {
+                if (isset($p['MIN'], $p['MAX']) && (float) $p['MAX'] > (float) $p['MIN']) {
+                    $min = (float) $p['MIN'];
+                    $max = (float) $p['MAX'];
+                }
+                if (isset($p['STEP_SIZE']) && (float) $p['STEP_SIZE'] > 0) {
+                    $step = (float) $p['STEP_SIZE'];
+                }
+            }
+        }
+        return [$min, $max, $step];
     }
 
     private function RoomValues(array $ids): array
@@ -485,7 +656,7 @@ class Hauskachel extends IPSModuleStrict
     /**
      * Alle Variablen unterhalb einer Kategorie, mit dem Namen der Instanz oder des Links als Zusammenhang.
      */
-    private function Collect(int $catId, bool $recursive, int $depth = 0, string $context = ''): array
+    private function Collect(int $catId, bool $recursive, int $depth = 0, string $context = '', string $group = '', bool $hidden = false): array
     {
         $found = [];
         if ($depth > 5) {
@@ -493,19 +664,24 @@ class Hauskachel extends IPSModuleStrict
         }
         foreach ($this->Children($catId, true) as $child) {
             $obj = IPS_GetObject($child);
+            $h = $hidden || $obj['ObjectIsHidden'];
             if ($obj['ObjectType'] === OBJECTTYPE_CATEGORY) {
                 if ($recursive) {
-                    // Unterordner im Raum („Licht“, „Steckdosen“) geben den Zusammenhang mit
-                    $found = array_merge($found, $this->Collect($child, true, $depth + 1, $context . ' ' . $obj['ObjectName']));
+                    // Unterordner im Raum („Licht“, „Steckdosen“) geben Zusammenhang und Gruppe mit
+                    $found = array_merge($found, $this->Collect($child, true, $depth + 1, $context . ' ' . $obj['ObjectName'], $obj['ObjectName'], $h));
                 }
                 continue;
             }
-            $found = array_merge($found, $this->CollectObject($child, $context, $depth));
+            $found = array_merge($found, $this->CollectObject($child, $context, $depth, $group, $h));
         }
         return $found;
     }
 
-    private function CollectObject(int $id, string $context, int $depth = 0): array
+    /**
+     * Ein Objekt im Raum. Liefert Einträge [Variable/Skript, Zusammenhang, Anzeigename, Gruppe, versteckt, Skript?].
+     * Ein Link gibt seinen Namen als Anzeigename weiter, eine Instanz ihren Namen als Gruppe.
+     */
+    private function CollectObject(int $id, string $context, int $depth = 0, string $group = '', bool $hidden = false, string $label = ''): array
     {
         if ($depth > 5 || !IPS_ObjectExists($id)) {
             return [];
@@ -513,12 +689,16 @@ class Hauskachel extends IPSModuleStrict
         $obj = IPS_GetObject($id);
         switch ($obj['ObjectType']) {
             case OBJECTTYPE_VARIABLE:
-                return [[$id, trim($context)]];
+                return [[$id, trim($context), $label !== '' ? $label : $obj['ObjectName'], $group, $hidden || ($label === '' && $obj['ObjectIsHidden']), false]];
+            case OBJECTTYPE_SCRIPT:
+                return [[$id, trim($context), $label !== '' ? $label : $obj['ObjectName'], $group, $hidden || ($label === '' && $obj['ObjectIsHidden']), true]];
             case OBJECTTYPE_INSTANCE:
                 // Variablen und Links in der Instanz (z. B. Dummy-Instanz „Heizkörper“ mit Links auf die HCU)
                 $found = [];
+                $name = $label !== '' ? $label : $obj['ObjectName'];
+                $h = $hidden || ($label === '' && $obj['ObjectIsHidden']);
                 foreach ($this->Children($id, true) as $child) {
-                    $found = array_merge($found, $this->CollectObject($child, $context . ' ' . $obj['ObjectName'], $depth + 1));
+                    $found = array_merge($found, $this->CollectObject($child, $context . ' ' . $obj['ObjectName'], $depth + 1, $name, $h));
                 }
                 return $found;
             case OBJECTTYPE_LINK:
@@ -527,9 +707,9 @@ class Hauskachel extends IPSModuleStrict
                     return [];
                 }
                 if (IPS_GetObject($target)['ObjectType'] === OBJECTTYPE_CATEGORY) {
-                    return $this->Collect($target, true, $depth + 1, $context . ' ' . $obj['ObjectName']);
+                    return $this->Collect($target, true, $depth + 1, $context . ' ' . $obj['ObjectName'], $obj['ObjectName'], $hidden);
                 }
-                return $this->CollectObject($target, $context . ' ' . $obj['ObjectName'], $depth + 1);
+                return $this->CollectObject($target, $context . ' ' . $obj['ObjectName'], $depth + 1, $group, $hidden, $obj['ObjectName']);
         }
         return [];
     }
@@ -650,7 +830,7 @@ class Hauskachel extends IPSModuleStrict
             if (!isset($index['rooms'][$key], $data['rooms'][$key])) {
                 continue;
             }
-            $values = $this->RoomValues($index['rooms'][$key]['ids']);
+            $values = $this->RoomState($index['rooms'][$key]);
             $room = array_merge($data['rooms'][$key], $values);
             // Beide Seiten gleich durch JSON schicken, damit 22 und 22.0 nicht als Änderung gelten
             $norm = static fn (array $r): string => (string) json_encode(json_decode((string) json_encode($r), true));
@@ -726,6 +906,56 @@ class Hauskachel extends IPSModuleStrict
         $value = (float) GetValue($sid) + ($direction > 0 ? $step : -$step);
         $value = round(max(5.0, min(30.0, $value)) / $step) * $step;
         RequestAction($sid, round($value, 1));
+    }
+
+    /**
+     * Bedienung eines Objekts aus dem Raumdetail. Die Kachel schickt Raum und Position in der Liste,
+     * das Modul prüft Art, Aktion und Wertebereich selbst.
+     */
+    private function SetItem(string $key, int $i, array $data): void
+    {
+        if (!preg_match('/^r\d+$/', $key)) {
+            return;
+        }
+        $index = json_decode($this->ReadAttributeString('Index'), true) ?: [];
+        $item = $index['rooms'][$key]['items'][$i] ?? null;
+        if (!is_array($item)) {
+            return;
+        }
+        $id = (int) $item['id'];
+        if (!empty($item['s'])) {
+            if (IPS_ScriptExists($id)) {
+                IPS_RunScript($id);
+            }
+            return;
+        }
+        if (!IPS_VariableExists($id) || !HasAction($id)) {
+            return;
+        }
+        $type = IPS_GetVariable($id)['VariableType'];
+        $current = GetValue($id);
+        if ($type === VARIABLETYPE_BOOLEAN) {
+            RequestAction($id, (bool) ($data['v'] ?? !$current));
+            return;
+        }
+        $options = $this->Options($id);
+        if (count($options) >= 2 && array_key_exists('v', $data)) {
+            foreach ($options as [$value]) {
+                if ((string) $value === (string) $data['v']) {
+                    RequestAction($id, $value);
+                }
+            }
+            return;
+        }
+        if ($type !== VARIABLETYPE_INTEGER && $type !== VARIABLETYPE_FLOAT) {
+            return;
+        }
+        [$min, $max, $step] = $this->Range($id);
+        $target = isset($data['d']) ? (float) $current + ((int) $data['d'] > 0 ? $step : -$step) : (float) ($data['v'] ?? $current);
+        if ($max > $min) {
+            $target = max($min, min($max, $target));
+        }
+        RequestAction($id, $type === VARIABLETYPE_INTEGER ? (int) round($target) : round($target, 2));
     }
 
     /**
@@ -809,12 +1039,28 @@ class Hauskachel extends IPSModuleStrict
         usort($children, static function (int $a, int $b): int {
             $oa = IPS_GetObject($a);
             $ob = IPS_GetObject($b);
-            return [$oa['ObjectPosition'], $oa['ObjectName']] <=> [$ob['ObjectPosition'], $ob['ObjectName']];
+            // Wie in der Konsole: Position, dann Ordner und Instanzen vor einzelnen Objekten, dann Name
+            $ca = self::IsContainer($oa);
+            $cb = self::IsContainer($ob);
+            return [$oa['ObjectPosition'], $ca, $oa['ObjectName']] <=> [$ob['ObjectPosition'], $cb, $ob['ObjectName']];
         });
         if ($withHidden) {
             return $children;
         }
         return array_values(array_filter($children, static fn (int $c): bool => !IPS_GetObject($c)['ObjectIsHidden']));
+    }
+
+    /**
+     * Ordner, Instanz oder Link auf so etwas: steht wie in der Konsole vor einzelnen Variablen.
+     */
+    private static function IsContainer(array $obj): int
+    {
+        $type = $obj['ObjectType'];
+        if ($type === OBJECTTYPE_LINK) {
+            $target = IPS_GetLink($obj['ObjectID'])['TargetID'];
+            $type = $target > 0 && IPS_ObjectExists($target) ? IPS_GetObject($target)['ObjectType'] : $type;
+        }
+        return in_array($type, [OBJECTTYPE_CATEGORY, OBJECTTYPE_INSTANCE], true) ? 0 : 1;
     }
 
     private function Step(): float

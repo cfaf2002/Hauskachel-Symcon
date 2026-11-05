@@ -102,7 +102,7 @@
     .outside .room .big { width: 20px; height: 20px; color: var(--haus-presence); }
     .outside .room .txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 
-    .detail { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px; border-radius: var(--radius-l); background: var(--surface); overflow-y: auto; }
+    .detail { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px; border-radius: var(--radius-l); background: var(--surface); overflow-y: auto; }
     .detail .floorname { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
     .detail h2 { margin: 2px 0 0; font-size: 20px; }
     .detail .temp { display: flex; align-items: flex-end; gap: 12px; }
@@ -118,6 +118,16 @@
     .step button { width: 40px; height: 40px; border-radius: var(--radius-s); border: 0; background: var(--surface-hover); cursor: pointer; font-size: 20px; }
     .step span { min-width: 52px; text-align: center; font-weight: 600; }
     .empty { font-size: 13px; color: var(--muted); }
+    .group { margin-top: 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .row .name { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; line-height: 1.25; }
+    .row .state { text-align: right; }
+    .pills { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+    .pill { min-height: 36px; padding: 0 12px; border-radius: var(--pill); border: 0; background: var(--surface-hover); cursor: pointer; font-size: 13px; }
+    .pill.on { background: var(--accent); color: var(--on-accent); }
+    .select { min-height: 36px; max-width: 150px; border-radius: var(--radius-s); border: 1px solid var(--line); background: var(--popup); color: var(--fg); font: inherit; font-size: 13px; padding: 0 8px; }
+    .range { display: flex; align-items: center; gap: 8px; }
+    .range input { width: 110px; accent-color: var(--accent); }
+    .range .val { min-width: 44px; text-align: right; font-size: 13px; }
     .close { display: none; }
 
     .error { margin: auto; max-width: 360px; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.5; }
@@ -351,59 +361,109 @@
             $('dTemp').textContent = r.t !== null && r.t !== undefined ? tempText(r.t) : '';
             $('dHum').textContent = r.h !== null && r.h !== undefined ? num(r.h, 0) + ' % rel. Feuchte' : '';
 
-            if (r.l !== null && r.l !== undefined) {
+            // Mehrere Lichter: gemeinsamer Schalter oben
+            if (r.ln > 1) {
                 var row = el('div', 'row');
-                row.appendChild(el('span', '', r.ln > 1 ? 'Licht (' + r.ln + ')' : 'Licht'));
-                var b = el('button', 'toggle' + (r.l > 0 ? ' on' : ''), r.l > 0 ? (r.ln > 1 ? r.l + ' an' : 'An') : 'Aus');
+                row.appendChild(el('span', 'name', 'Alle Lichter · ' + r.l + '/' + r.ln + ' an'));
+                var b = el('button', 'toggle' + (r.l > 0 ? ' on' : ''), r.l > 0 ? 'Aus' : 'An');
                 b.type = 'button';
                 b.disabled = !r.la;
-                b.setAttribute('aria-label', 'Licht schalten');
+                b.setAttribute('aria-label', r.l > 0 ? 'Alle Lichter aus' : 'Alle Lichter an');
                 var key = selected;
                 b.addEventListener('click', function () { send('Light', key); });
                 row.appendChild(b);
                 rows.appendChild(row);
             }
-            if (r.s !== null && r.s !== undefined) {
-                var srow = el('div', 'row');
-                srow.appendChild(el('span', '', 'Heizung Soll'));
-                var shown = pending[selected] !== undefined ? pending[selected] : r.s;
-                if (r.sa) {
-                    var st = el('span', 'step');
-                    var down = el('button', '', '−'); down.type = 'button'; down.setAttribute('aria-label', 'Solltemperatur senken');
-                    var val = el('span', '', num(shown, 1) + '°');
-                    var up = el('button', '', '+'); up.type = 'button'; up.setAttribute('aria-label', 'Solltemperatur erhöhen');
-                    var k2 = selected;
-                    var change = function (d) {
-                        var base = pending[k2] !== undefined ? pending[k2] : state.rooms[k2].s;
-                        pending[k2] = Math.max(5, Math.min(30, Math.round((base + d * state.step) * 10) / 10));
-                        val.textContent = num(pending[k2], 1) + '°';
-                        send('Setpoint', JSON.stringify({ k: k2, d: d }));
-                    };
-                    down.addEventListener('click', function () { change(-1); });
-                    up.addEventListener('click', function () { change(1); });
-                    st.appendChild(down); st.appendChild(val); st.appendChild(up);
-                    srow.appendChild(st);
-                } else {
-                    srow.appendChild(el('span', 'state', num(shown, 1) + ' °C'));
+            // Alles, was im Raumordner liegt – gegliedert nach Unterordner bzw. Dummy-Instanz
+            var lastGroup = null;
+            (r.it || []).forEach(function (it, i) {
+                if (it.g !== lastGroup) {
+                    lastGroup = it.g;
+                    if (it.g) { rows.appendChild(el('div', 'group', it.g)); }
                 }
-                rows.appendChild(srow);
-            }
-            if (r.w !== null && r.w !== undefined) {
-                var wrow = el('div', 'row');
-                wrow.appendChild(el('span', '', r.wn > 1 ? 'Fenster / Türen (' + r.wn + ')' : 'Fenster / Tür'));
-                var text = r.w > 0 ? (r.wn > 1 ? r.w + ' offen' : 'offen') : 'geschlossen';
-                wrow.appendChild(el('span', 'state ' + (r.w > 0 ? 'open' : 'closed'), text));
-                rows.appendChild(wrow);
-            }
-            if (r.p !== null && r.p !== undefined) {
-                var prow = el('div', 'row');
-                prow.appendChild(el('span', '', 'Präsenz'));
-                prow.appendChild(el('span', 'state', r.p ? 'jemand da' : 'niemand'));
-                rows.appendChild(prow);
-            }
+                rows.appendChild(itemRow(selected, i, it));
+            });
             if (!rows.childNodes.length) {
                 rows.appendChild(el('div', 'empty', 'In diesem Bereich wurden noch keine Geräte gefunden.'));
             }
+        }
+
+        function itemRow(key, i, it) {
+            var row = el('div', 'row');
+            row.appendChild(el('span', 'name', it.n));
+            var pid = key + '#' + i;
+            var set = function (payload) {
+                payload.k = key; payload.i = i;
+                send('Set', JSON.stringify(payload));
+            };
+            if (it.c === 'sw') {
+                var b = el('button', 'toggle' + (it.x ? ' on' : ''), it.v);
+                b.type = 'button';
+                b.setAttribute('aria-pressed', it.x ? 'true' : 'false');
+                b.setAttribute('aria-label', it.n + ' schalten');
+                b.addEventListener('click', function () { set({ v: !it.x }); });
+                row.appendChild(b);
+            } else if (it.c === 'en') {
+                var opts = it.o || [];
+                if (opts.length <= 4) {
+                    var pills = el('span', 'pills');
+                    opts.forEach(function (o) {
+                        var p = el('button', 'pill' + (String(o[0]) === String(it.x) ? ' on' : ''), o[1]);
+                        p.type = 'button';
+                        p.addEventListener('click', function () { set({ v: o[0] }); });
+                        pills.appendChild(p);
+                    });
+                    row.appendChild(pills);
+                } else {
+                    var sel = el('select', 'select');
+                    sel.setAttribute('aria-label', it.n);
+                    opts.forEach(function (o) {
+                        var op = el('option', '', o[1]);
+                        op.value = String(o[0]);
+                        if (String(o[0]) === String(it.x)) { op.selected = true; }
+                        sel.appendChild(op);
+                    });
+                    sel.addEventListener('change', function () { set({ v: sel.value }); });
+                    row.appendChild(sel);
+                }
+            } else if (it.c === 'rg') {
+                var wrap = el('span', 'range');
+                var inp = el('input');
+                inp.type = 'range'; inp.min = it.mn; inp.max = it.mx; inp.step = it.st; inp.value = it.x;
+                inp.setAttribute('aria-label', it.n);
+                var out = el('span', 'val', it.v);
+                inp.addEventListener('input', function () { out.textContent = inp.value; });
+                inp.addEventListener('change', function () { set({ v: Number(inp.value) }); });
+                wrap.appendChild(inp); wrap.appendChild(out);
+                row.appendChild(wrap);
+            } else if (it.c === 'st') {
+                var st = el('span', 'step');
+                var down = el('button', '', '−'); down.type = 'button'; down.setAttribute('aria-label', it.n + ' verringern');
+                var val = el('span', '', pending[pid] !== undefined ? pending[pid] : it.v);
+                var up = el('button', '', '+'); up.type = 'button'; up.setAttribute('aria-label', it.n + ' erhöhen');
+                var change = function (d) {
+                    var cur = typeof it.x === 'number' ? it.x : 0;
+                    var base = pending[pid + 'n'] !== undefined ? pending[pid + 'n'] : cur;
+                    var next = Math.round((base + d * (it.st || 1)) * 100) / 100;
+                    if (it.mx > it.mn) { next = Math.max(it.mn, Math.min(it.mx, next)); }
+                    pending[pid + 'n'] = next;
+                    pending[pid] = num(next, (it.st || 1) % 1 === 0 ? 0 : 1);
+                    val.textContent = pending[pid];
+                    set({ d: d });
+                };
+                down.addEventListener('click', function () { change(-1); });
+                up.addEventListener('click', function () { change(1); });
+                st.appendChild(down); st.appendChild(val); st.appendChild(up);
+                row.appendChild(st);
+            } else if (it.c === 'run') {
+                var rb = el('button', 'toggle', 'Ausführen');
+                rb.type = 'button';
+                rb.addEventListener('click', function () { set({}); });
+                row.appendChild(rb);
+            } else {
+                row.appendChild(el('span', 'state', it.v));
+            }
+            return row;
         }
 
         function select(key, open) {
@@ -465,7 +525,8 @@
                 // Nur geänderte Räume: Felder, Etagenwerte, Zusammenfassung und ggf. Detail neu zeichnen
                 Object.keys(data.rooms).forEach(function (k) {
                     var r = data.rooms[k];
-                    if (pending[k] !== undefined && r.s !== null && Math.abs(r.s - pending[k]) < 0.05) { delete pending[k]; }
+                    // Rückmeldung da: vorläufige Anzeige der −/+-Werte verwerfen
+                    Object.keys(pending).forEach(function (p) { if (p.indexOf(k + '#') === 0) { delete pending[p]; } });
                     state.rooms[k] = r;
                     if (chips[k]) { fillRoom(chips[k], k); }
                     if (k.charAt(0) === 'm') {

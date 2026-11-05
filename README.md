@@ -2,7 +2,7 @@
 
 [![IP-Symcon ab 8.1](https://img.shields.io/badge/IP--Symcon-ab_8.1-0b6fb3.svg)](https://www.symcon.de)
 [![Optimiert für Symcon 9.0](https://img.shields.io/badge/optimiert_f%C3%BCr-Symcon_9.0-0b6fb3.svg)](https://www.symcon.de/de/service/dokumentation/installation/migrationen/v81-v90-q1-2026/)
-[![Modul-Version 1.3 (Build 4)](https://img.shields.io/badge/Modul--Version-1.3_(Build_4)-informational.svg)](library.json)
+[![Modul-Version 1.4 (Build 5)](https://img.shields.io/badge/Modul--Version-1.4_(Build_5)-informational.svg)](library.json)
 [![Tests](https://github.com/cfaf2002/Hauskachel-Symcon/actions/workflows/tests.yml/badge.svg)](https://github.com/cfaf2002/Hauskachel-Symcon/actions/workflows/tests.yml)
 [![PHP 8.3 und 8.5](https://img.shields.io/badge/PHP-8.3_%7C_8.5-777bb4.svg?logo=php&logoColor=white)](https://www.php.net)
 [![SDK: IPSModuleStrict](https://img.shields.io/badge/SDK-IPSModuleStrict-success.svg)](https://www.symcon.de/de/service/dokumentation/entwicklerbereich/sdk-tools/sdk-php/module/)
@@ -110,7 +110,10 @@ Was die Erkennung gefunden hat, zeigt die Tabelle *Erkannt* im Formular. Passt e
 
 - Kopfzeile mit Titel und Zusammenfassung
 - Raumfelder: Name, Temperatur, Symbole für Licht (Feld leuchtet gelb), offenes Fenster und Präsenz
-- Antippen öffnet das Raumdetail: Temperatur und Feuchte, Licht schalten, Solltemperatur −/+, Fenster und Präsenz. Bei schmaler Kachel erscheint das Detail als Blatt von unten
+- Antippen öffnet das Raumdetail mit **allem, was im Raumordner liegt** – Variablen, Links, Variablen in Dummy-Instanzen und Skripte, gegliedert nach Unterordner bzw. Dummy-Instanz (z. B. *Licht*, *Heizkörper*, *Steckdosen*). Versteckte Objekte bleiben ausgeblendet
+- Werte erscheinen so formatiert wie in Symcon; bedienbare Variablen bekommen das passende Element: Schalter (Ja/Nein), Auswahl (Profil-Assoziationen oder Darstellungs-Optionen), Schieber (Ganzzahl mit Bereich, z. B. Dimmer), −/+ (Kommazahl, z. B. Solltemperatur), Skripte mit „Ausführen“
+- Mehrere Lichter im Raum lassen sich oben gemeinsam schalten
+- Bei schmaler Kachel erscheint das Detail als Blatt von unten
 - Farbschema: Symcon-Design (Farben der Visualisierung), Dunkel oder Hell
 
 ## 6. Variablen und Darstellungen
@@ -129,7 +132,7 @@ HAUS_Rebuild(int $InstanzID): bool   // Struktur neu einlesen und Kachel neu auf
 
 ## 8. Sicherheit und Geschwindigkeit
 
-- Die Kachel schickt nur Raumschlüssel, nie Variablen-IDs. Geschaltet werden ausschließlich Variablen, die das Modul selbst in diesem Raum gefunden hat, und nur über deren Aktion (`RequestAction`).
+- Die Kachel schickt nur Raumschlüssel und die Position in der Raumliste, nie Variablen-IDs. Geschaltet werden ausschließlich Objekte, die das Modul selbst in diesem Raum gefunden hat, und nur über deren Aktion (`RequestAction`). Auswahlwerte müssen zu den Optionen passen, Zahlen werden auf den Bereich aus Profil bzw. Darstellung begrenzt.
 - Alle Texte in der Kachel per `textContent`; Startdaten mit `JSON_HEX_*` eingebettet.
 - Bei einer Wertänderung wird nur der betroffene Raum neu berechnet und nur dessen Feld neu gezeichnet. Strukturänderungen werden gesammelt (2 s) und dann einmal eingelesen.
 - Keine Abrufe nach außen, keine externen Dateien in der Kachel.
@@ -148,6 +151,7 @@ php tests/stubs.php ../SymconStubs
 
 | Version | Build | Datum | Beschreibung |
 | :-- | --: | :-- | :-- |
+| 1.4 | 5 | 05.11.2026 | Raumdetail zeigt alles, was im Raumordner liegt (Variablen, Links, Variablen in Dummy-Instanzen, Skripte), gegliedert nach Unterordner bzw. Dummy-Instanz, mit formatierten Werten und passender Bedienung (Schalter, Auswahl, Schieber, −/+, Skript ausführen); Reihenfolge wie in der Konsole |
 | 1.3 | 4 | 05.11.2026 | Erkennung durchläuft Unterordner, Dummy-Instanzen und Links vollständig (auch versteckte); Ordner bzw. Dummy-Instanz im Raum („Licht“, „Steckdosen“, „Heizkörper“) entscheidet vor dem Linknamen; Dimmer in % zählen als Licht und werden auf Höchstwert/0 geschaltet; Steckdosen werden nicht mehr als Fenster gezählt; Raumfelder zeigen alle gefundenen Geräte, auch wenn sie aus sind |
 | 1.2 | 3 | 05.11.2026 | Erkennt auch Links in Instanzen (z. B. Dummy-Instanz „Heizkörper“ mit Links auf die HCU) und Fensterstatus als Text („Geschlossen“, „Offen“, „Gekippt“) |
 | 1.1 | 2 | 05.11.2026 | Kachel lässt oben Platz für Titel und Vergrößern-Symbol der Visualisierung; Struktur wird beim ersten Öffnen eingelesen; klarer Hinweis statt leerer Kachel, wenn die Hauskategorie fehlt |
