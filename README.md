@@ -2,7 +2,7 @@
 
 [![IP-Symcon ab 8.1](https://img.shields.io/badge/IP--Symcon-ab_8.1-0b6fb3.svg)](https://www.symcon.de)
 [![Optimiert für Symcon 9.0](https://img.shields.io/badge/optimiert_f%C3%BCr-Symcon_9.0-0b6fb3.svg)](https://www.symcon.de/de/service/dokumentation/installation/migrationen/v81-v90-q1-2026/)
-[![Modul-Version 1.4 (Build 5)](https://img.shields.io/badge/Modul--Version-1.4_(Build_5)-informational.svg)](library.json)
+[![Modul-Version 1.5 (Build 6)](https://img.shields.io/badge/Modul--Version-1.5_(Build_6)-informational.svg)](library.json)
 [![Tests](https://github.com/cfaf2002/Hauskachel-Symcon/actions/workflows/tests.yml/badge.svg)](https://github.com/cfaf2002/Hauskachel-Symcon/actions/workflows/tests.yml)
 [![PHP 8.3 und 8.5](https://img.shields.io/badge/PHP-8.3_%7C_8.5-777bb4.svg?logo=php&logoColor=white)](https://www.php.net)
 [![SDK: IPSModuleStrict](https://img.shields.io/badge/SDK-IPSModuleStrict-success.svg)](https://www.symcon.de/de/service/dokumentation/entwicklerbereich/sdk-tools/sdk-php/module/)
@@ -104,6 +104,8 @@ Nach der Wahl der Hauskategorie und *Übernehmen* listet das Formular alle Berei
 
 Am sichersten ist ein Ordner oder eine Dummy-Instanz pro Gerätegruppe im Raum, z. B. *Licht*, *Heizkörper*, *Steckdosen*: Der Name dieses Ordners entscheidet vor dem Namen des Links. „Steckdosen › Fenster links unten“ ist damit eine Steckdose (wird ausgelassen), „Licht › Deko“ ein Licht. Fehlt so ein Ordner, helfen Name, Profil, Einheit und der Pfad der Hardware-Variable (z. B. `KNX\…\Beleuchtung\…`).
 
+In Innenräumen und bei Etagenwerten zählen Außen-, Vorlauf-, Rücklauf- und Wassertemperaturen nicht als Raumwert, in Außenbereichen schon. Gibt es mehrere Temperaturen, gewinnt die mit „Raum“, „Ist“, „Aktuell“ oder „Innen“ im Namen. Anpassung bzw. Offset der Solltemperatur zählt nicht als Solltemperatur.
+
 Was die Erkennung gefunden hat, zeigt die Tabelle *Erkannt* im Formular. Passt etwas nicht, unter *Eigene Zuordnungen* Raum, Funktion und Variable eintragen.
 
 ## 5. Kachel
@@ -151,6 +153,7 @@ php tests/stubs.php ../SymconStubs
 
 | Version | Build | Datum | Beschreibung |
 | :-- | --: | :-- | :-- |
+| 1.5 | 6 | 05.11.2026 | Raumtemperatur richtig gewählt: Außen-, Vorlauf-, Rücklauf- und Wassertemperaturen zählen in Innenräumen und bei Etagenwerten nicht (im Garten schon); bei mehreren Temperaturen gewinnt „Raum“/„Ist“/„Aktuell“/„Innen“; Anpassung/Offset zählt nicht als Solltemperatur |
 | 1.4 | 5 | 05.11.2026 | Raumdetail zeigt alles, was im Raumordner liegt (Variablen, Links, Variablen in Dummy-Instanzen, Skripte), gegliedert nach Unterordner bzw. Dummy-Instanz, mit formatierten Werten und passender Bedienung (Schalter, Auswahl, Schieber, −/+, Skript ausführen); Reihenfolge wie in der Konsole |
 | 1.3 | 4 | 05.11.2026 | Erkennung durchläuft Unterordner, Dummy-Instanzen und Links vollständig (auch versteckte); Ordner bzw. Dummy-Instanz im Raum („Licht“, „Steckdosen“, „Heizkörper“) entscheidet vor dem Linknamen; Dimmer in % zählen als Licht und werden auf Höchstwert/0 geschaltet; Steckdosen werden nicht mehr als Fenster gezählt; Raumfelder zeigen alle gefundenen Geräte, auch wenn sie aus sind |
 | 1.2 | 3 | 05.11.2026 | Erkennt auch Links in Instanzen (z. B. Dummy-Instanz „Heizkörper“ mit Links auf die HCU) und Fensterstatus als Text („Geschlossen“, „Offen“, „Gekippt“) |

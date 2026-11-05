@@ -406,6 +406,7 @@ class Hauskachel extends IPSModuleStrict
         $own = $overrides[$catId] ?? [];
         $ignored = array_flip($own['x'] ?? []);
         $seen = [];
+        $best = [];
         $items = [];
         foreach ($found as [$vid, $context, $itemName, $group, $hidden, $script]) {
             if (isset($seen[$vid])) {
@@ -419,14 +420,19 @@ class Hauskachel extends IPSModuleStrict
             if ($script || isset($ignored[$vid])) {
                 continue;
             }
-            $f = $this->Classify($vid, $context);
+            $f = $this->Classify($vid, $context, $outdoor);
             if ($f === null) {
                 continue;
             }
             if (in_array($f, self::MULTI, true)) {
                 $ids[$f][] = $vid;
-            } elseif ($ids[$f] === 0) {
+                continue;
+            }
+            // Mehrere Kandidaten (z. B. Raum- und Außentemperatur): der passendere Name gewinnt, sonst der erste
+            $score = $this->Preference($vid, $context);
+            if ($ids[$f] === 0 || $score > ($best[$f] ?? 0)) {
                 $ids[$f] = $vid;
+                $best[$f] = $score;
             }
         }
         foreach (self::FUNCTIONS as $f) {
@@ -717,7 +723,7 @@ class Hauskachel extends IPSModuleStrict
     /**
      * Erkennt die Funktion einer Variable an Name, Ident, Profil, Symbol und Zusammenhang.
      */
-    private function Classify(int $vid, string $context): ?string
+    private function Classify(int $vid, string $context, bool $outdoor = false): ?string
     {
         $var = IPS_GetVariable($vid);
         $obj = IPS_GetObject($vid);
@@ -757,6 +763,14 @@ class Hauskachel extends IPSModuleStrict
             return null;
         }
         // Messwerte zuerst – sie sind am Namen eindeutig
+        // Werte, die nicht den Raum beschreiben: in Innenräumen nie Raumtemperatur/-feuchte/-soll
+        $foreign = (bool) preg_match('/außen|aussen|outdoor|outside|exterior|vorlauf|rücklauf|ruecklauf|wasser|water|kessel|boiler|abgas|taupunkt|dew|gefühlt|feels/u', $all);
+        $offset = (bool) preg_match('/anpassung|offset|abweichung|korrektur|verschiebung|shift|delta/u', $all);
+        if (($foreign && !$outdoor) || $offset) {
+            if ($numeric && ($is('hum', $all) || $is('set', $all) || $is('temp', $all))) {
+                return null;
+            }
+        }
         if ($numeric && $is('hum', $all)) {
             return 'h';
         }
@@ -794,6 +808,15 @@ class Hauskachel extends IPSModuleStrict
             }
         }
         return null;
+    }
+
+    /**
+     * Wie gut ein Name den Raumwert trifft: „Raumtemperatur“, „Ist-Temperatur“, „Aktuelle Temperatur“ vor allem anderen.
+     */
+    private function Preference(int $vid, string $context): int
+    {
+        $text = mb_strtolower($context . ' ' . IPS_GetName($vid));
+        return preg_match('/raum|room|\bist\b|ist-|actual|aktuell|innen|indoor|current/u', $text) ? 2 : 1;
     }
 
     /**
