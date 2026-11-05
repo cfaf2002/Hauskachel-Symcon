@@ -1,0 +1,466 @@
+<!--
+    Kachel für das Modul "Hauskachel" (IP-Symcon HTML-SDK)
+    Copyright (c) 2026 Armin Frohwerk · MIT-Lizenz (siehe LICENSE)
+    SPDX-License-Identifier: MIT
+
+    Aufbau: Kopfzeile mit Zusammenfassung · Haus im Schnitt (Etagen von oben nach unten, Keller unter der
+    Erdgleiche, durchgehende Bereiche wie das Treppenhaus als senkrechte Achse) · Außenbereiche und
+    Nebengebäude (Garten, Garage, Carport) · Raumdetail rechts bzw. als Blatt von unten bei schmaler Kachel.
+    Sicherheit: Alle Texte per textContent, nie als HTML. Die Kachel schickt nur Raumschlüssel, nie Variablen-IDs.
+    Leistung:   Keine externen Dateien; bei Änderungen kommen nur die betroffenen Räume, nur deren Felder
+                werden neu gezeichnet.
+-->
+<style>
+    /* ===== Hausstil cfaf2002 · Kachel-Grundlage v1 (siehe STYLEGUIDE.md) =====
+       Farbschema 0 = Symcon-Design (Farben der Visualisierung), 1 = Dunkel, 2 = Hell.
+       Modulspezifisch ist nur --brand (Akzent der festen Farbschemas). */
+    :root {
+        --brand: #3d8bd9;
+        --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --fg: var(--content-color, #eef3f7);
+        --accent: var(--accent-color, var(--brand));
+        --on-accent: #ffffff;
+        --muted: color-mix(in srgb, var(--fg) 65%, transparent);
+        --faint: color-mix(in srgb, var(--fg) 40%, transparent);
+        --line: color-mix(in srgb, var(--fg) 15%, transparent);
+        --surface: color-mix(in srgb, var(--fg) 7%, transparent);
+        --surface-hover: color-mix(in srgb, var(--fg) 12%, transparent);
+        --popup: var(--card-color, #232a33);
+        --ok: #34b36b; --warn: #e2a63b; --bad: #e5484d; --info: #4b8ef0; --off: #8796a5;
+        --radius-l: 14px; --radius: 12px; --radius-s: 8px; --pill: 999px; --gap: 8px;
+    }
+    html.theme-dark  { --fg: #eef3f7; --accent: var(--brand); --tile-bg: #1b2530; --popup: #232d39; }
+    html.theme-light { --fg: #1d2b36; --accent: var(--brand); --tile-bg: #e9eef3; --popup: #ffffff; }
+    html.theme-dark body, html.theme-light body { background: var(--tile-bg); }
+    html, body { font-family: var(--font); color: var(--fg); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+    /* ===== Ende Kachel-Grundlage ===== */
+
+    /* Modulspezifisch, abgeleitet aus den Tokens */
+    :root {
+        --haus-light: var(--warn);
+        --haus-light-bg: color-mix(in srgb, var(--warn) 20%, transparent);
+        --haus-window: color-mix(in srgb, var(--warn) 45%, var(--bad));
+        --haus-presence: var(--ok);
+        --haus-temp: var(--info);
+        --haus-floor: var(--surface);
+        --haus-outside: color-mix(in srgb, var(--ok) 10%, transparent);
+    }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    * { box-sizing: border-box; }
+    button { font: inherit; color: inherit; }
+    svg.i { width: 14px; height: 14px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    #app { height: 100%; display: flex; flex-direction: column; gap: 12px; padding: 14px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .title svg { width: 24px; height: 24px; stroke: var(--accent); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    .title h1 { margin: 0; font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .title small { display: block; font-size: 12px; color: var(--muted); }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { display: flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: var(--pill); background: var(--surface); font-size: 13px; }
+    .chip.light svg { color: var(--haus-light); }
+    .chip.win svg { color: var(--haus-window); }
+    .chip.temp svg { color: var(--haus-temp); }
+
+    main { flex: 1 1 auto; display: flex; gap: 14px; min-height: 0; }
+    .house { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: thin; }
+    .roof { width: 100%; height: 26px; display: block; stroke: var(--line); stroke-width: 2; fill: none; }
+    .body { display: flex; gap: 8px; }
+    .floors { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .floor { display: flex; gap: 10px; padding: 10px; border-radius: var(--radius); background: var(--haus-floor); border: 1px solid var(--line); }
+    .floor.basement { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+    .floor-label { width: 78px; flex-shrink: 0; padding-top: 2px; }
+    .floor-label b { display: block; font-size: 14px; }
+    .floor-label span { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .rooms { flex: 1 1 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; min-width: 0; }
+    .ground { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+    .ground::before, .ground::after { content: ""; flex: 1; border-top: 2px dashed var(--line); }
+
+    .room { display: flex; flex-direction: column; justify-content: space-between; gap: 6px; min-height: 56px; padding: 8px 9px; text-align: left;
+        border-radius: var(--radius-s); border: 2px solid transparent; background: var(--surface); cursor: pointer; min-width: 0; transition: background .2s, border-color .2s; }
+    .room:hover { background: var(--surface-hover); }
+    .room.lit { background: var(--haus-light-bg); }
+    .room.sel { border-color: var(--accent); }
+    .room .n { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .room .v { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 12px; color: var(--muted); }
+    .room .ic { display: flex; gap: 3px; }
+    .ic .l { color: var(--haus-light); } .ic .w { color: var(--haus-window); } .ic .p { color: var(--haus-presence); }
+
+    .axis { width: 64px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
+    .axis .room { flex: 1; align-items: center; justify-content: center; text-align: center; background: var(--haus-floor); border-color: var(--line); }
+    .axis .room.sel { border-color: var(--accent); }
+    .axis .room .n { writing-mode: vertical-rl; transform: rotate(180deg); overflow: visible; }
+    .outside { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 8px; }
+    .outside .room { flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; min-height: 46px; background: var(--haus-outside); }
+    .outside .room .big { width: 20px; height: 20px; color: var(--haus-presence); }
+    .outside .room .txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+
+    .detail { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px; border-radius: var(--radius-l); background: var(--surface); overflow-y: auto; }
+    .detail .floorname { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .detail h2 { margin: 2px 0 0; font-size: 20px; }
+    .detail .temp { display: flex; align-items: flex-end; gap: 12px; }
+    .detail .temp b { font-size: 40px; font-weight: 600; line-height: 1; }
+    .detail .temp span { font-size: 13px; color: var(--muted); padding-bottom: 4px; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 52px; padding: 6px 12px; border-radius: var(--radius-s); background: var(--surface); font-size: 14px; }
+    .row .state { font-size: 13px; font-weight: 600; }
+    .row .state.open { color: var(--haus-window); } .row .state.closed { color: var(--ok); }
+    .toggle { min-width: 72px; min-height: 40px; border-radius: var(--pill); border: 0; background: var(--surface-hover); cursor: pointer; font-weight: 600; }
+    .toggle.on { background: var(--haus-light); color: #1b1608; }
+    .toggle:disabled { opacity: .5; cursor: default; }
+    .step { display: flex; align-items: center; gap: 8px; }
+    .step button { width: 40px; height: 40px; border-radius: var(--radius-s); border: 0; background: var(--surface-hover); cursor: pointer; font-size: 20px; }
+    .step span { min-width: 52px; text-align: center; font-weight: 600; }
+    .empty { font-size: 13px; color: var(--muted); }
+    .close { display: none; }
+
+    .error { margin: auto; max-width: 360px; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.5; }
+
+    /* Schmale Kachel: Raumdetail als Blatt von unten */
+    #app.narrow .detail { position: absolute; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 75%; background: var(--popup);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, .35); transform: translateY(110%); transition: transform .25s; z-index: 5; }
+    #app.narrow.open .detail { transform: none; }
+    #app.narrow .close { display: block; position: absolute; right: 10px; top: 10px; width: 36px; height: 36px; border-radius: var(--pill); border: 0; background: var(--surface-hover); cursor: pointer; }
+    #app.narrow .floor-label { width: 56px; }
+    #app.narrow .axis { width: 48px; }
+</style>
+
+<div id="app">
+    <header id="head">
+        <div class="title">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>
+            <div style="min-width:0"><h1 id="title">Haus</h1><small id="subtitle"></small></div>
+        </div>
+        <div class="chips" id="chips">
+            <div class="chip light"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#ico-l"/></svg><span id="sumL"></span></div>
+            <div class="chip win"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#ico-w"/></svg><span id="sumW"></span></div>
+            <div class="chip temp"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#ico-t"/></svg><span id="sumT"></span></div>
+        </div>
+    </header>
+    <main id="main">
+        <div class="house">
+            <svg class="roof" viewBox="0 0 640 26" preserveAspectRatio="none" aria-hidden="true"><path d="M16 25 L320 2 L624 25"/></svg>
+            <div class="body"><div class="floors" id="floors"></div><div class="axis" id="axis"></div></div>
+            <div class="outside" id="outside"></div>
+        </div>
+        <aside class="detail" id="detail" aria-live="polite">
+            <button class="close" id="close" aria-label="Schließen"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+            <div><div class="floorname" id="dFloor"></div><h2 id="dName"></h2></div>
+            <div class="temp"><b id="dTemp"></b><span id="dHum"></span></div>
+            <div id="dRows" style="display:flex;flex-direction:column;gap:8px"></div>
+        </aside>
+    </main>
+    <div class="error" id="error" hidden></div>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <g id="ico-l"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></g>
+        <g id="ico-w"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M12 3v18M4 12h16"/></g>
+        <g id="ico-p"><circle cx="12" cy="7" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></g>
+        <g id="ico-t"><path d="M14 14.8V4a2 2 0 1 0-4 0v10.8a4 4 0 1 0 4 0z"/></g>
+        <g id="ico-garden"><path d="M12 22V12"/><path d="M12 12c0-4 3-7 7-7 0 4-3 7-7 7z"/><path d="M12 15c0-3-2-5-6-5 0 3 2 5 6 5z"/></g>
+        <g id="ico-garage"><path d="M3 10l9-6 9 6v11H3z"/><path d="M7 21v-8h10v8M7 16h10"/></g>
+        <g id="ico-carport"><path d="M2 8l10-4 10 4"/><path d="M4 8v13M20 8v13"/><path d="M7 17h10l-1.5-4h-7z"/></g>
+        <g id="ico-building"><path d="M4 21V9l8-5 8 5v12z"/><path d="M10 21v-6h4v6"/></g>
+    </defs>
+</svg>
+
+<script>
+    // Hausstil: Farbschema der Kachel (0 = Symcon-Design, 1 = Dunkel, 2 = Hell)
+    function applyTheme(theme) {
+        var root = document.documentElement;
+        root.classList.toggle('theme-dark', theme === 1);
+        root.classList.toggle('theme-light', theme === 2);
+    }
+
+    (function () {
+        var SVGNS = 'http://www.w3.org/2000/svg';
+        var state = { rooms: {}, floors: [], axis: [], out: [], step: 0.5, summary: true, title: '' };
+        var floorOf = {};      // Raumschlüssel → Etagenname
+        var chips = {};        // Raumschlüssel → Schaltfläche
+        var selected = null;
+        var pending = {};      // Raumschlüssel → angezeigte Solltemperatur bis zur Rückmeldung
+        var $ = function (id) { return document.getElementById(id); };
+        var app = $('app');
+
+        function el(tag, cls, text) {
+            var e = document.createElement(tag);
+            if (cls) { e.className = cls; }
+            if (text !== undefined && text !== null) { e.textContent = text; }
+            return e;
+        }
+        function icon(name, cls) {
+            var s = document.createElementNS(SVGNS, 'svg');
+            s.setAttribute('class', 'i' + (cls ? ' ' + cls : ''));
+            s.setAttribute('viewBox', '0 0 24 24');
+            s.setAttribute('aria-hidden', 'true');
+            var u = document.createElementNS(SVGNS, 'use');
+            u.setAttribute('href', '#ico-' + name);
+            s.appendChild(u);
+            return s;
+        }
+        function num(v, digits) {
+            return Number(v).toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+        }
+        function tempText(v) { return v === null || v === undefined ? '—' : num(v, 1) + ' °C'; }
+        function send(ident, value) {
+            if (typeof window.requestAction === 'function') { window.requestAction(ident, value); }
+        }
+
+        // ---------- Räume ----------
+        function fillRoom(btn, key) {
+            var r = state.rooms[key] || {};
+            var out = btn.parentNode && btn.parentNode.id === 'outside';
+            btn.textContent = '';
+            btn.classList.toggle('lit', !out && r.l > 0);
+            btn.classList.toggle('sel', key === selected);
+            btn.setAttribute('aria-label', (r.n || '') + (floorOf[key] ? ', ' + floorOf[key] : ''));
+            btn.setAttribute('aria-pressed', key === selected ? 'true' : 'false');
+            var icons = el('span', 'ic');
+            if (r.l > 0) { icons.appendChild(icon('l', 'l')); }
+            if (r.w > 0) { icons.appendChild(icon('w', 'w')); }
+            if (r.p) { icons.appendChild(icon('p', 'p')); }
+            if (out) {
+                var big = icon(r.i || 'garden', 'big');
+                btn.appendChild(big);
+                var txt = el('span', 'txt');
+                txt.appendChild(el('span', 'n', r.n));
+                txt.appendChild(el('span', 'v', r.t !== null && r.t !== undefined ? tempText(r.t) : ''));
+                btn.appendChild(txt);
+                btn.appendChild(icons);
+                return;
+            }
+            btn.appendChild(el('span', 'n', r.n));
+            if (btn.parentNode && btn.parentNode.id === 'axis') {
+                btn.appendChild(el('span', 'v', r.t !== null && r.t !== undefined ? num(r.t, 1) + '°' : ''));
+                btn.appendChild(icons);
+                return;
+            }
+            var v = el('span', 'v');
+            v.appendChild(el('span', '', tempText(r.t)));
+            v.appendChild(icons);
+            btn.appendChild(v);
+        }
+        function roomButton(key, parent) {
+            var b = el('button', 'room');
+            b.type = 'button';
+            parent.appendChild(b);
+            b.addEventListener('click', function () { select(key, true); });
+            chips[key] = b;
+            fillRoom(b, key);
+            return b;
+        }
+
+        // ---------- Aufbau ----------
+        function build() {
+            chips = {};
+            floorOf = {};
+            var floors = $('floors'), axis = $('axis'), outside = $('outside');
+            floors.textContent = ''; axis.textContent = ''; outside.textContent = '';
+            var basementSeen = false;
+            (state.floors || []).forEach(function (f, i) {
+                var isBasement = !!f.b;
+                if (isBasement && !basementSeen && i > 0) {
+                    floors.appendChild(el('div', 'ground', 'Erdgleiche'));
+                }
+                basementSeen = basementSeen || isBasement;
+                var box = el('div', 'floor' + (isBasement ? ' basement' : ''));
+                var label = el('div', 'floor-label');
+                label.appendChild(el('b', '', f.n));
+                var m = f.m ? state.rooms[f.m] : null;
+                var mt = el('span', '', measureText(m));
+                mt.dataset.m = f.m || '';
+                label.appendChild(mt);
+                box.appendChild(label);
+                var grid = el('div', 'rooms');
+                box.appendChild(grid);
+                floors.appendChild(box);
+                (f.r || []).forEach(function (k) { floorOf[k] = f.n; roomButton(k, grid); });
+                if (!(f.r || []).length) { grid.appendChild(el('span', 'empty', 'keine Räume')); }
+            });
+            (state.axis || []).forEach(function (k) { floorOf[k] = 'Haus'; roomButton(k, axis); });
+            axis.hidden = !(state.axis || []).length;
+            (state.out || []).forEach(function (k) { floorOf[k] = 'Außen'; roomButton(k, outside); });
+            outside.hidden = !(state.out || []).length;
+
+            $('title').textContent = state.title || 'Haus';
+            var count = 0;
+            Object.keys(state.rooms).forEach(function (k) { if (k.charAt(0) === 'r') { count++; } });
+            $('subtitle').textContent = (state.floors || []).length + ' Etagen · ' + count + ' Bereiche';
+            if (!selected || !state.rooms[selected]) {
+                selected = firstRoom();
+            }
+            if (selected && chips[selected]) { fillRoom(chips[selected], selected); }
+            summary();
+            detail();
+        }
+        function measureText(m) {
+            if (!m) { return ''; }
+            var parts = [];
+            if (m.t !== null && m.t !== undefined) { parts.push(tempText(m.t)); }
+            if (m.h !== null && m.h !== undefined) { parts.push(num(m.h, 0) + ' %'); }
+            return parts.join(' · ');
+        }
+        function firstRoom() {
+            var keys = [];
+            (state.floors || []).forEach(function (f) { keys = keys.concat(f.r || []); });
+            keys = keys.concat(state.axis || [], state.out || []);
+            for (var i = 0; i < keys.length; i++) { if (state.rooms[keys[i]] && state.rooms[keys[i]].p) { return keys[i]; } }
+            return keys.length ? keys[0] : null;
+        }
+
+        // ---------- Zusammenfassung ----------
+        function summary() {
+            var l = 0, w = 0, t = [];
+            Object.keys(state.rooms).forEach(function (k) {
+                if (k.charAt(0) !== 'r') { return; }
+                var r = state.rooms[k];
+                l += r.l || 0; w += r.w || 0;
+                if (r.t !== null && r.t !== undefined && !r.o) { t.push(r.t); }
+            });
+            $('sumL').textContent = l + (l === 1 ? ' Licht an' : ' Lichter an');
+            $('sumW').textContent = w + ' Fenster offen';
+            $('sumT').textContent = t.length ? 'Ø ' + num(t.reduce(function (a, b) { return a + b; }, 0) / t.length, 1) + ' °C' : 'Ø —';
+            $('chips').hidden = !state.summary;
+        }
+
+        // ---------- Raumdetail ----------
+        function detail() {
+            var r = selected ? state.rooms[selected] : null;
+            var rows = $('dRows');
+            rows.textContent = '';
+            if (!r) {
+                $('dFloor').textContent = ''; $('dName').textContent = 'Kein Raum'; $('dTemp').textContent = ''; $('dHum').textContent = '';
+                return;
+            }
+            $('dFloor').textContent = floorOf[selected] || '';
+            $('dName').textContent = r.n;
+            $('dTemp').textContent = r.t !== null && r.t !== undefined ? tempText(r.t) : '';
+            $('dHum').textContent = r.h !== null && r.h !== undefined ? num(r.h, 0) + ' % rel. Feuchte' : '';
+
+            if (r.l !== null && r.l !== undefined) {
+                var row = el('div', 'row');
+                row.appendChild(el('span', '', r.ln > 1 ? 'Licht (' + r.ln + ')' : 'Licht'));
+                var b = el('button', 'toggle' + (r.l > 0 ? ' on' : ''), r.l > 0 ? (r.ln > 1 ? r.l + ' an' : 'An') : 'Aus');
+                b.type = 'button';
+                b.disabled = !r.la;
+                b.setAttribute('aria-label', 'Licht schalten');
+                var key = selected;
+                b.addEventListener('click', function () { send('Light', key); });
+                row.appendChild(b);
+                rows.appendChild(row);
+            }
+            if (r.s !== null && r.s !== undefined) {
+                var srow = el('div', 'row');
+                srow.appendChild(el('span', '', 'Heizung Soll'));
+                var shown = pending[selected] !== undefined ? pending[selected] : r.s;
+                if (r.sa) {
+                    var st = el('span', 'step');
+                    var down = el('button', '', '−'); down.type = 'button'; down.setAttribute('aria-label', 'Solltemperatur senken');
+                    var val = el('span', '', num(shown, 1) + '°');
+                    var up = el('button', '', '+'); up.type = 'button'; up.setAttribute('aria-label', 'Solltemperatur erhöhen');
+                    var k2 = selected;
+                    var change = function (d) {
+                        var base = pending[k2] !== undefined ? pending[k2] : state.rooms[k2].s;
+                        pending[k2] = Math.max(5, Math.min(30, Math.round((base + d * state.step) * 10) / 10));
+                        val.textContent = num(pending[k2], 1) + '°';
+                        send('Setpoint', JSON.stringify({ k: k2, d: d }));
+                    };
+                    down.addEventListener('click', function () { change(-1); });
+                    up.addEventListener('click', function () { change(1); });
+                    st.appendChild(down); st.appendChild(val); st.appendChild(up);
+                    srow.appendChild(st);
+                } else {
+                    srow.appendChild(el('span', 'state', num(shown, 1) + ' °C'));
+                }
+                rows.appendChild(srow);
+            }
+            if (r.w !== null && r.w !== undefined) {
+                var wrow = el('div', 'row');
+                wrow.appendChild(el('span', '', r.wn > 1 ? 'Fenster / Türen (' + r.wn + ')' : 'Fenster / Tür'));
+                var text = r.w > 0 ? (r.wn > 1 ? r.w + ' offen' : 'offen') : 'geschlossen';
+                wrow.appendChild(el('span', 'state ' + (r.w > 0 ? 'open' : 'closed'), text));
+                rows.appendChild(wrow);
+            }
+            if (r.p !== null && r.p !== undefined) {
+                var prow = el('div', 'row');
+                prow.appendChild(el('span', '', 'Präsenz'));
+                prow.appendChild(el('span', 'state', r.p ? 'jemand da' : 'niemand'));
+                rows.appendChild(prow);
+            }
+            if (!rows.childNodes.length) {
+                rows.appendChild(el('div', 'empty', 'In diesem Bereich wurden noch keine Geräte gefunden.'));
+            }
+        }
+
+        function select(key, open) {
+            var old = selected;
+            selected = key;
+            if (old && chips[old]) { fillRoom(chips[old], old); }
+            if (chips[key]) { fillRoom(chips[key], key); }
+            detail();
+            if (open) { app.classList.add('open'); }
+        }
+        $('close').addEventListener('click', function () { app.classList.remove('open'); });
+
+        // ---------- Größe ----------
+        function layout() {
+            app.classList.toggle('narrow', app.clientWidth < 640);
+        }
+        if (typeof ResizeObserver === 'function') { new ResizeObserver(layout).observe(app); }
+        window.addEventListener('resize', layout);
+        layout();
+
+        // ---------- Daten aus Symcon ----------
+        window.handleMessage = function (data) {
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch (e) { return; }
+            }
+            if (!data || typeof data !== 'object') { return; }
+            if (typeof data.theme === 'number') { applyTheme(data.theme); }
+
+            if (data.error) {
+                $('main').hidden = true; $('head').hidden = true;
+                $('error').hidden = false; $('error').textContent = data.error;
+                return;
+            }
+            if (data.full || data.floors) {
+                $('main').hidden = false; $('head').hidden = false; $('error').hidden = true;
+                state.rooms = data.rooms || {};
+                state.floors = data.floors || [];
+                state.axis = data.axis || [];
+                state.out = data.out || [];
+                state.step = data.step || 0.5;
+                state.summary = data.summary !== false;
+                state.title = data.title || '';
+                pending = {};
+                build();
+                return;
+            }
+            if (data.rooms) {
+                // Nur geänderte Räume: Felder, Etagenwerte, Zusammenfassung und ggf. Detail neu zeichnen
+                Object.keys(data.rooms).forEach(function (k) {
+                    var r = data.rooms[k];
+                    if (pending[k] !== undefined && r.s !== null && Math.abs(r.s - pending[k]) < 0.05) { delete pending[k]; }
+                    state.rooms[k] = r;
+                    if (chips[k]) { fillRoom(chips[k], k); }
+                    if (k.charAt(0) === 'm') {
+                        var span = document.querySelector('[data-m="' + k + '"]');
+                        if (span) { span.textContent = measureText(r); }
+                    }
+                });
+                summary();
+                if (selected && data.rooms[selected]) { detail(); }
+            }
+        };
+
+        var initial = /*INITIAL_DATA*/null;
+        if (initial) {
+            window.handleMessage(initial);
+        }
+    })();
+</script>

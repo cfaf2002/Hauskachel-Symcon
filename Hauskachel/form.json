@@ -1,0 +1,170 @@
+{
+    "elements": [
+        {
+            "type": "ExpansionPanel",
+            "caption": "House",
+            "expanded": true,
+            "items": [
+                {
+                    "type": "SelectCategory",
+                    "name": "RootCategory",
+                    "caption": "House category (contains floors, staircase, garden, garage …)"
+                },
+                {
+                    "type": "ValidationTextBox",
+                    "name": "Title",
+                    "caption": "Title on the tile (empty = name of the category)"
+                },
+                {
+                    "type": "Label",
+                    "caption": "Areas below the house category. The type is suggested from the name – change it if needed and apply."
+                },
+                {
+                    "type": "List",
+                    "name": "Areas",
+                    "caption": "Areas",
+                    "rowCount": 10,
+                    "add": false,
+                    "delete": false,
+                    "columns": [
+                        { "caption": "ID", "name": "CategoryID", "width": "0px", "visible": false, "add": 0 },
+                        { "caption": "Area", "name": "Name", "width": "auto", "add": "" },
+                        {
+                            "caption": "Type",
+                            "name": "Kind",
+                            "width": "260px",
+                            "add": 0,
+                            "edit": {
+                                "type": "Select",
+                                "options": [
+                                    { "caption": "Floor with rooms", "value": 0 },
+                                    { "caption": "Basement (always at the bottom)", "value": 1 },
+                                    { "caption": "Continuous (e.g. staircase)", "value": 2 },
+                                    { "caption": "Outdoor area (e.g. garden)", "value": 3 },
+                                    { "caption": "Outbuilding (e.g. garage, carport)", "value": 4 },
+                                    { "caption": "Do not show", "value": 5 }
+                                ]
+                            }
+                        },
+                        {
+                            "caption": "Level (higher = further up)",
+                            "name": "Level",
+                            "width": "200px",
+                            "add": 0,
+                            "edit": { "type": "NumberSpinner", "minimum": -5, "maximum": 20 }
+                        }
+                    ],
+                    "values": []
+                }
+            ]
+        },
+        {
+            "type": "ExpansionPanel",
+            "caption": "Assignment",
+            "items": [
+                {
+                    "type": "Label",
+                    "caption": "In every room the module finds temperature, humidity, setpoint, light, windows/doors and presence by name, profile and icon – also via links and inside instances."
+                },
+                {
+                    "type": "ValidationTextBox",
+                    "name": "MeasureNames",
+                    "caption": "Categories with floor values (comma separated)"
+                },
+                {
+                    "type": "CheckBox",
+                    "name": "AutoRebuild",
+                    "caption": "Re-read automatically when rooms are added, removed or renamed"
+                },
+                {
+                    "type": "List",
+                    "name": "Overrides",
+                    "caption": "Own assignments (take precedence; \"Ignore\" removes a wrongly detected variable)",
+                    "rowCount": 5,
+                    "add": true,
+                    "delete": true,
+                    "columns": [
+                        { "caption": "Room (category)", "name": "Room", "width": "280px", "add": 0, "edit": { "type": "SelectCategory" } },
+                        {
+                            "caption": "Function",
+                            "name": "Function",
+                            "width": "200px",
+                            "add": "t",
+                            "edit": {
+                                "type": "Select",
+                                "options": [
+                                    { "caption": "Temperature", "value": "t" },
+                                    { "caption": "Humidity", "value": "h" },
+                                    { "caption": "Setpoint", "value": "s" },
+                                    { "caption": "Light", "value": "l" },
+                                    { "caption": "Window / door", "value": "w" },
+                                    { "caption": "Presence", "value": "p" },
+                                    { "caption": "Ignore", "value": "x" }
+                                ]
+                            }
+                        },
+                        { "caption": "Variable", "name": "Variable", "width": "auto", "add": 0, "edit": { "type": "SelectVariable" } }
+                    ],
+                    "values": []
+                },
+                {
+                    "type": "List",
+                    "name": "Detected",
+                    "caption": "Detected (after applying)",
+                    "rowCount": 10,
+                    "add": false,
+                    "delete": false,
+                    "save": false,
+                    "columns": [
+                        { "caption": "Room", "name": "Room", "width": "240px" },
+                        { "caption": "Function", "name": "Function", "width": "160px" },
+                        { "caption": "Variable", "name": "Variable", "width": "auto" }
+                    ],
+                    "values": []
+                }
+            ]
+        },
+        {
+            "type": "ExpansionPanel",
+            "caption": "Tile",
+            "items": [
+                {
+                    "type": "Select",
+                    "name": "TileTheme",
+                    "caption": "Color scheme of the tile",
+                    "options": [
+                        { "caption": "Symcon design – colors of the visualization", "value": 0 },
+                        { "caption": "Dark scheme", "value": 1 },
+                        { "caption": "Light scheme", "value": 2 }
+                    ]
+                },
+                {
+                    "type": "CheckBox",
+                    "name": "ShowSummary",
+                    "caption": "Show summary (lights, windows, average temperature)"
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "SetpointStep",
+                    "caption": "Setpoint step",
+                    "digits": 1,
+                    "minimum": 0.1,
+                    "maximum": 2,
+                    "suffix": " °C"
+                }
+            ]
+        }
+    ],
+    "actions": [
+        {
+            "type": "Button",
+            "caption": "Re-read structure",
+            "onClick": "HAUS_Rebuild($id);"
+        }
+    ],
+    "status": [
+        { "code": 102, "icon": "active", "caption": "House tile is active" },
+        { "code": 104, "icon": "inactive", "caption": "Please choose the house category" },
+        { "code": 201, "icon": "error", "caption": "The house category does not exist" }
+    ]
+}

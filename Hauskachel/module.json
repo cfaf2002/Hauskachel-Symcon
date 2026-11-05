@@ -1,0 +1,12 @@
+{
+    "id": "{FA170014-9C10-464B-ADA4-CEBDBB724F1F}",
+    "name": "Hauskachel",
+    "type": 3,
+    "vendor": "Armin Frohwerk",
+    "aliases": [],
+    "parentRequirements": [],
+    "childRequirements": [],
+    "implemented": [],
+    "prefix": "HAUS",
+    "url": "https://github.com/cfaf2002/Hauskachel-Symcon"
+}
