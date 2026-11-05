@@ -128,6 +128,11 @@ class Hauskachel extends IPSModuleStrict
     {
         $html = (string) file_get_contents(__DIR__ . '/tile.html');
         $data = json_decode($this->ReadAttributeString('TileData'), true) ?: [];
+        if (!isset($data['floors']) && !isset($data['error'])) {
+            // Noch nie aufgebaut (z. B. Kachel vor dem ersten Übernehmen geöffnet): jetzt einlesen
+            $this->Build();
+            $data = json_decode($this->ReadAttributeString('TileData'), true) ?: [];
+        }
         $data['theme'] = $this->ReadPropertyInteger('TileTheme');
         // JSON_HEX_* verhindert, dass Namen wie "</script>" das Skript der Kachel beenden
         $json = (string) json_encode($data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);

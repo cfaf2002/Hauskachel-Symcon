@@ -54,9 +54,11 @@
     button { font: inherit; color: inherit; }
     svg.i { width: 14px; height: 14px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
-    #app { height: 100%; display: flex; flex-direction: column; gap: 12px; padding: 14px; }
+    /* oben Platz für Titel und Symbole der Kachel-Visualisierung (Name links, Vergrößern rechts) */
+    #app { height: 100%; display: flex; flex-direction: column; gap: 10px; padding: 50px 14px 14px; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
     .title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .title small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .title svg { width: 24px; height: 24px; stroke: var(--accent); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
     .title h1 { margin: 0; font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .title small { display: block; font-size: 12px; color: var(--muted); }
@@ -130,10 +132,7 @@
 
 <div id="app">
     <header id="head">
-        <div class="title">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>
-            <div style="min-width:0"><h1 id="title">Haus</h1><small id="subtitle"></small></div>
-        </div>
+        <div class="title"><small id="subtitle"></small></div>
         <div class="chips" id="chips">
             <div class="chip light"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#ico-l"/></svg><span id="sumL"></span></div>
             <div class="chip win"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#ico-w"/></svg><span id="sumW"></span></div>
@@ -287,10 +286,10 @@
             (state.out || []).forEach(function (k) { floorOf[k] = 'Außen'; roomButton(k, outside); });
             outside.hidden = !(state.out || []).length;
 
-            $('title').textContent = state.title || 'Haus';
             var count = 0;
             Object.keys(state.rooms).forEach(function (k) { if (k.charAt(0) === 'r') { count++; } });
-            $('subtitle').textContent = (state.floors || []).length + ' Etagen · ' + count + ' Bereiche';
+            // Den Kachelnamen zeigt die Visualisierung selbst; hier nur Haus, Etagen und Bereiche
+            $('subtitle').textContent = (state.title ? state.title + ' · ' : '') + (state.floors || []).length + ' Etagen · ' + count + ' Bereiche';
             if (!selected || !state.rooms[selected]) {
                 selected = firstRoom();
             }
@@ -415,8 +414,20 @@
         window.addEventListener('resize', layout);
         layout();
 
+        function showError(text) {
+            $('main').hidden = true; $('head').hidden = true;
+            $('error').hidden = false; $('error').textContent = text;
+        }
+
         // ---------- Daten aus Symcon ----------
         window.handleMessage = function (data) {
+            try {
+                receive(data);
+            } catch (e) {
+                showError('Fehler in der Kachel: ' + (e && e.message ? e.message : e));
+            }
+        };
+        function receive(data) {
             if (typeof data === 'string') {
                 try { data = JSON.parse(data); } catch (e) { return; }
             }
@@ -424,8 +435,7 @@
             if (typeof data.theme === 'number') { applyTheme(data.theme); }
 
             if (data.error) {
-                $('main').hidden = true; $('head').hidden = true;
-                $('error').hidden = false; $('error').textContent = data.error;
+                showError(data.error);
                 return;
             }
             if (data.full || data.floors) {
@@ -456,11 +466,14 @@
                 summary();
                 if (selected && data.rooms[selected]) { detail(); }
             }
-        };
+        }
 
         var initial = /*INITIAL_DATA*/null;
-        if (initial) {
+        if (initial && (initial.floors || initial.error)) {
             window.handleMessage(initial);
+        } else {
+            if (initial && typeof initial.theme === 'number') { applyTheme(initial.theme); }
+            showError('Noch keine Daten. Bitte in der Instanz die Hauskategorie wählen und übernehmen.');
         }
     })();
 </script>
